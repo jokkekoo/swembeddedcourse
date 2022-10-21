@@ -1,0 +1,196 @@
+#include "Mutex.h"
+#include "ThisThread.h"
+#include "mbed.h"
+#include "mstd_iterator"
+#include <string>
+// Task in general
+
+//#define DEBUG // If defined DEBUG is on! ..
+
+/*
+ *There are four tasks:
+ *T1: GPS Parse - Parse (simplified) NMEA messages from serial port (UART) to get timestamp and GPS coordinates of a data point. Create separate parser function/library as in Exercise 4. More instructions further below.
+ *Example message is "$GPGGA,134732.000,5540.3244,N,01231.2941,E", where the fields are:
+ *$GPGGA - message identifier
+ *134732.000 - timestamp in format hhmmss.000
+ *5540.3244 - Latitude 
+ *N - North hemisphere
+ *01231.2941 - Longitude 
+ *E - East hemisphere
+ *
+ *T2: Air Quality Sensor - Sensor values (data points) as randomized number between 0 and 100.
+ *
+ *T3: Data Aggregator - Create data point that has combined GPS information and air quality measurement.
+ *
+ *
+ *T4: Data analysis - Analysis of data to get the minimum and maximum values for air quality, see debug interface below. T4 controls the execution of T3 with Events.
+ */
+
+// Debug Interface
+/*
+ *Debug Interface
+ *The idea is the get, through the serial port, the minimum ja maximum values (so far) of air quality data and the number of data items handled so far (i.e. how many GPS messages were handled). The are three commands in the interface:
+ *- "?min", return minimum air quality value
+ *- "?max" return maximum air quality value
+ *-"?cnt" return the number of handled GPS messages
+ *
+ *Below is an example code, how to print out floating point numbers to the serial port.
+ *
+ *You don't need to write test cases for the debug interface. 
+ */
+
+
+typedef struct {
+    double timestamp;
+    double longitude;
+    double latitude;
+    double sensorvalue;
+} data_msg_t;
+CircularBuffer<data_msg_t, 10> data;
+// Data should be sent between threads using Queue
+// hmm
+Queue<double,20> timestampqueue;
+Queue<double,20> longitudequeue;
+Queue<double,20> latitudequeue;
+Queue<double,20> sensorqueue;
+
+Mutex muteksi;
+
+/* You can start using the data structure in task T1. Fill out everything in except the sensor value that you receive from task T2 in task T3. 
+ *Then task T3 does data point matching based on received values. Matching in simple, just one sensor value per timestamp and coordinate pair. 
+ *Then deliver the filled data structure to task T4.
+ */
+
+// 4 Threads Check
+Thread t1;
+Thread t2;
+Thread t3;
+Thread t4;
+
+char command[100];
+int command_count = 0;
+bool new_command = false;
+static UnbufferedSerial pc(USBTX, USBRX);
+int fields = 0;
+
+void serial_rx_int() {
+    char c = 0;
+    if (pc.read(&c,1)){
+        command[command_count] = c;
+        command_count++;
+
+        if (c == '\r'){
+            new_command=true;
+        }
+    }
+}
+
+// ehkä Watchdog tuohon kun katsoo onko $GSPPA oikein.
+// Note: atof and similar function don't detect overflows and return zero on error, so there's no way to know if it failed.
+// you should use strtol for converting strings to int and strtod converting to double
+int parser(char *str){
+    data_msg_t data;
+    double testvariable = 0;
+    double *dubbelstet = NULL; 
+    char delim[] = ",";
+    int fields = 0;
+    str = strtok(command, delim);
+    while ( str != NULL) {
+        str = strtok(NULL, delim);
+        switch (fields) {
+            case 0:
+                //data.timestamp = atof(str);
+                testvariable = atof(str);
+                //timestampqueue.try_put(atof(&str));
+                //data_msg_t[1]
+                timestampqueue.try_put(&testvariable);
+                ThisThread::sleep_for(100ms);
+                timestampqueue.try_get(&dubbelstet);
+                //printf("Timestamp= %f\n", *dubbelstet);
+                //printf("Timestamp= %f\n", data.timestamp);
+                break;
+            case 1:
+                data.longitude = atof(str);
+                //longitudequeue.try_put(str);
+                //printf("Longitude= %f\n", data.longitude);
+                break;
+            case 3:
+                data.latitude = atof(str);
+                //latitudequeue.try_put(str);
+                //printf("latitude= %f\n", data.latitude);
+                break;
+            default:
+                break;
+        }
+        //debug msg vois tulla tähän cnt, montako käsitelty? 
+        fields++;
+    }
+    // Palauttaa montako eriteltyä stringiä oli itse stringin sisällä eroteltu pilkulla ( , )
+    return fields;
+}
+
+/*T1: GPS Parse - Parse (simplified) NMEA messages from serial port (UART) to get timestamp and GPS coordinates of a data point. 
+ Create separate parser function/library as in Exercise 4. More instructions further below.
+ Example message is "$GPGGA,134732.000,5540.3244,N,01231.2941,E", where the fields are:
+ $GPGGA - message identifier                menee pois
+ 34732.000 - timestamp in format hhmmss.000 case 0  
+ 5540.3244 - Latitude                       case 1
+ N - North hemisphere                       case 2 # ei käyttöä
+ 01231.2941 - Longitude                     case 3
+ E - East hemisphere                        case 4 # ei käyttöä
+ */
+void thread1() {
+    // $GPGGA,134731.361,5540.3252,N,01231.2946,E
+    //Pitää check että $GPGGA eikä esim $GPGGS
+    // 6 eri tataa timestamp latitude longitude sensorvalue data_msg_t
+    while (true) {  // exercise5 parsing input from serial port
+        ThisThread::sleep_for(10ms);
+        if (new_command == true){
+            fields = parser(command);
+            //printf("%d\n", fields);
+            new_command = false;
+            command_count = 0;
+        }
+    }
+}
+
+// T2: Air Quality Sensor - Sensor values (data points) as randomized number between 0 and 100.
+void thread2() {
+    double aqsensorValue = 0;
+    aqsensorValue = std::rand() % 100;
+    sensorqueue.try_put(&aqsensorValue);
+    ThisThread::sleep_for(50ms);
+}
+
+//T3: Data Aggregator - Create data point that has combined GPS information and air quality measurement.
+// $GPGGA,134731.361,5540.3252,N,01231.2946,E
+// $GPGGA,666666.361,5540.3252,N,01231.2946,E
+// = Timestamp= 134731.361 Longitude= 5540.3252 Latitude= 01231.2946 Airquality= 666 ==> thread4
+void thread3() {
+    data_msg_t data;
+    double *perse = NULL;
+    while (true) {
+        if(timestampqueue.empty() == false){
+            muteksi.lock();
+            timestampqueue.try_get(&perse);
+            printf("Timestamp= %f\n", *perse);
+            muteksi.unlock();
+        }
+    //printf("Timestamp= %f\n", data.timestamp);
+    ThisThread::sleep_for(50ms);
+    }
+}
+
+// Thread4 
+
+int main() {
+    std::srand(1);
+    pc.format(8, SerialBase::None,1);
+    pc.attach(serial_rx_int,SerialBase::RxIrq);
+    t1.start(thread1);
+    t2.start(thread2);
+    t3.start(thread3);
+//    t4.start();
+
+}
+ 
