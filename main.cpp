@@ -4,7 +4,6 @@
 #include "mstd_iterator"
 #include <string>
 // Task in general
-
 //#define DEBUG // If defined DEBUG is on! ..
 
 /*
@@ -46,7 +45,7 @@ typedef struct {
     double latitude;
     double sensorvalue;
 } data_msg_t;
-CircularBuffer<data_msg_t, 10> data;
+CircularBuffer<data_msg_t, 10> data_a; // data_aggregator
 // Data should be sent between threads using Queue
 // hmm
 Queue<double,20> timestampqueue;
@@ -70,7 +69,7 @@ Thread t4;
 char command[100];
 int command_count = 0;
 bool new_command = false;
-static UnbufferedSerial pc(USBTX, USBRX);
+static UnbufferedSerial pc(USBTX, USBRX,9600);
 int fields = 0;
 
 void serial_rx_int() {
@@ -147,7 +146,7 @@ void thread1() {
         ThisThread::sleep_for(10ms);
         if (new_command == true){
             fields = parser(command);
-            //printf("%d\n", fields);
+            printf("%d\n", fields);
             new_command = false;
             command_count = 0;
         }
@@ -155,11 +154,16 @@ void thread1() {
 }
 
 // T2: Air Quality Sensor - Sensor values (data points) as randomized number between 0 and 100.
-void thread2() {
-    double aqsensorValue = 0;
-    aqsensorValue = std::rand() % 100;
-    sensorqueue.try_put(&aqsensorValue);
-    ThisThread::sleep_for(50ms);
+void thread2() 
+{
+    while (true)
+    {
+        double aqsensorValue = 0;
+        aqsensorValue = std::rand() % 100;
+        sensorqueue.try_put(&aqsensorValue);
+        //printf("sensorValue: %f\n",aqsensorValue);
+        ThisThread::sleep_for(50ms);
+    }
 }
 
 //T3: Data Aggregator - Create data point that has combined GPS information and air quality measurement.
@@ -167,16 +171,40 @@ void thread2() {
 // $GPGGA,666666.361,5540.3252,N,01231.2946,E
 // = Timestamp= 134731.361 Longitude= 5540.3252 Latitude= 01231.2946 Airquality= 666 ==> thread4
 void thread3() {
-    data_msg_t data;
+    data_msg_t dm;
     double *perse = NULL;
     while (true) {
         if(timestampqueue.empty() == false){
             muteksi.lock();
             timestampqueue.try_get(&perse);
-            printf("Timestamp= %f\n", *perse);
+            dm.timestamp = *perse;
+            longitudequeue.try_get(&perse);
+            dm.longitude = *perse;
+            latitudequeue.try_get(&perse);
+            dm.latitude = *perse;
+            sensorqueue.try_get(&perse);
+            dm.sensorvalue = *perse;
+            data_a.push(dm);
+
+            printf("Timestamp: %f\n", dm.timestamp);
+            printf("Longitude: %f\n", dm.longitude);
+            printf("Latitude: %f\n", dm.latitude);
+            printf("Sensorvalue: %f\n", dm.sensorvalue);
+
             muteksi.unlock();
         }
-    //printf("Timestamp= %f\n", data.timestamp);
+        
+        
+//Queue<double,20> timestampqueue;
+//Queue<double,20> longitudequeue;
+//Queue<double,20> latitudequeue;
+//Queue<double,20> sensorqueue;
+
+//    double timestamp;
+  //  double longitude;
+    //double latitude;
+    //double sensorvalue;
+    //printf("Timestamp= %f\n", dm.timestamp);
     ThisThread::sleep_for(50ms);
     }
 }
@@ -184,9 +212,11 @@ void thread3() {
 // Thread4 
 
 int main() {
+    
     std::srand(1);
     pc.format(8, SerialBase::None,1);
     pc.attach(serial_rx_int,SerialBase::RxIrq);
+
     t1.start(thread1);
     t2.start(thread2);
     t3.start(thread3);
