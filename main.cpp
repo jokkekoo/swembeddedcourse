@@ -1,7 +1,9 @@
+#include "EventFlags.h"
 #include "Mutex.h"
 #include "ThisThread.h"
 #include "mbed.h"
 #include "mstd_iterator"
+#include <cstdint>
 #include <string>
 // Task in general
 //#define DEBUG // If defined DEBUG is on! ..
@@ -37,7 +39,9 @@
  *
  *You don't need to write test cases for the debug interface. 
  */
-
+#define FLAG1 (0x01)
+#define FLAG2 (0x02)
+EventFlags event_flags;
 
 typedef struct {
     double timestamp;
@@ -66,6 +70,8 @@ Thread t2;
 Thread t3;
 Thread t4;
 
+double minSensorValue = 100;
+double maxSensorValue = 0;
 char command[100];
 int command_count = 0;
 bool new_command = false;
@@ -93,13 +99,18 @@ int parser(char *str){
     double *dubbelstet = NULL; 
     char delim[] = ",";
     int fields = 0;
+
+    if (command[0] == '?')
+    {
+        return 1;
+    }
     str = strtok(command, delim);
     while ( str != NULL) {
         str = strtok(NULL, delim);
         switch (fields) {
             case 0:
                 //data.timestamp = atof(str);
-                testvariable = atof(str);
+                testvariable = atof(str);ThisThread::sleep_for(50ms);
                 //timestampqueue.try_put(atof(&str));
                 //data_msg_t[1]
                 timestampqueue.try_put(&testvariable);
@@ -109,12 +120,12 @@ int parser(char *str){
                 //printf("Timestamp= %f\n", data.timestamp);
                 break;
             case 1:
-                testvariable = atof(str);
-                longitudequeue.try_put(&testvariable);
+                //testvariable = atof(str);
+                //longitudequeue.try_put(&testvariable);
                 //printf("Longitude= %f\n", data.longitude);
                 break;
             case 3:
-                data.latitude = atof(str);
+                //data.latitude = atof(str);
                 //latitudequeue.try_put(str);
                 //printf("latitude= %f\n", data.latitude);
                 break;
@@ -124,6 +135,7 @@ int parser(char *str){
         //debug msg vois tulla tähän cnt, montako käsitelty? 
         fields++;
     }
+
     // Palauttaa montako eriteltyä stringiä oli itse stringin sisällä eroteltu pilkulla ( , )
     return fields;
 }
@@ -146,7 +158,7 @@ void thread1() {
         ThisThread::sleep_for(10ms);
         if (new_command == true){
             fields = parser(command);
-            printf("%d\n", fields);
+            //printf("%d\n", fields);
             new_command = false;
             command_count = 0;
         }
@@ -156,13 +168,14 @@ void thread1() {
 // T2: Air Quality Sensor - Sensor values (data points) as randomized number between 0 and 100.
 void thread2() 
 {
+    double aqsensorValue = 0;
     while (true)
     {
-        double aqsensorValue = 0;
         aqsensorValue = std::rand() % 100;
         sensorqueue.try_put(&aqsensorValue);
         //printf("sensorValue: %f\n",aqsensorValue);
-        ThisThread::sleep_for(50ms);
+        //ThisThread::sleep_for(50ms);
+        ThisThread::yield();
     }
 }
 
@@ -173,9 +186,13 @@ void thread2()
 void thread3() {
     data_msg_t dm;
     double *perse = NULL;
+    uint32_t flags_read = NULL;
     while (true) {
-        if(timestampqueue.empty() == false){
-            muteksi.lock();
+        flags_read = event_flags.wait_any(FLAG1);
+        if (timestampqueue.empty() == false)
+        {
+            event_flags.clear(FLAG1);
+            
             timestampqueue.try_get(&perse);
             dm.timestamp = *perse;
             longitudequeue.try_get(&perse);
@@ -186,30 +203,63 @@ void thread3() {
             dm.sensorvalue = *perse;
             data_a.push(dm);
 
+            muteksi.lock();
             printf("Timestamp: %f\n", dm.timestamp);
             printf("Longitude: %f\n", dm.longitude);
             printf("Latitude: %f\n", dm.latitude);
             printf("Sensorvalue: %f\n", dm.sensorvalue);
-
+            printf("\n");
             muteksi.unlock();
-        }
-        
-        
-//Queue<double,20> timestampqueue;
-//Queue<double,20> longitudequeue;
-//Queue<double,20> latitudequeue;
-//Queue<double,20> sensorqueue;
+            //ThisThread::sleep_for(50ms);
+            
+            if (maxSensorValue < dm.sensorvalue)
+            {
+                maxSensorValue = dm.sensorvalue;
+            }
+            if (minSensorValue > dm.sensorvalue)
+            {
+                minSensorValue = dm.sensorvalue;
+            }
 
-//    double timestamp;
-  //  double longitude;
-    //double latitude;
-    //double sensorvalue;
-    //printf("Timestamp= %f\n", dm.timestamp);
-    ThisThread::sleep_for(50ms);
+            *perse = NULL;
+            flags_read = NULL;
+            ThisThread::yield();
+        }
     }
 }
 
 // Thread4 
+void thread4()
+{
+    data_msg_t dm;
+    char maxValue[100];
+    uint32_t flags_read = NULL;
+    while(true)
+    {
+        if (command[0] == '?')
+        {
+            if (command[1] == 'c')
+            {
+                
+                
+            }
+            if (command[2] == 'i')
+            {
+                printf("Min sensor value: %f\n", minSensorValue);
+            }
+            if (command[3] == 'x')
+            {
+                printf("Max sensor value: %f\n", maxSensorValue);
+            }
+            command[0] = NULL;
+        }
+        if (new_command == true)
+        {
+            ThisThread::sleep_for(5ms);
+            event_flags.set(FLAG1);
+        }
+    }
+}
 
 int main() {
     
@@ -220,7 +270,7 @@ int main() {
     t1.start(thread1);
     t2.start(thread2);
     t3.start(thread3);
-//    t4.start();
+    t4.start(thread4);
 
 }
  
