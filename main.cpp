@@ -241,6 +241,7 @@ void thread4()
             if (command[1] == 'c')
             {
                 
+                
             }
             if (command[2] == 'i')
             {
