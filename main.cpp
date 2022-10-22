@@ -109,8 +109,8 @@ int parser(char *str){
                 //printf("Timestamp= %f\n", data.timestamp);
                 break;
             case 1:
-                data.longitude = atof(str);
-                //longitudequeue.try_put(str);
+                testvariable = atof(str);
+                longitudequeue.try_put(&testvariable);
                 //printf("Longitude= %f\n", data.longitude);
                 break;
             case 3:
