@@ -309,7 +309,7 @@ void thread4()
             }
             command[0] = NULL;
         }
-        if (new_command == true && command[0] != '\r')
+        if (new_command == true && command[0] != '\r' && command[0] == '$')
         {
             ThisThread::sleep_for(50ms);
             event_flags.set(FLAG1);
