@@ -93,51 +93,108 @@ void serial_rx_int() {
 // ehkä Watchdog tuohon kun katsoo onko $GSPPA oikein.
 // Note: atof and similar function don't detect overflows and return zero on error, so there's no way to know if it failed.
 // you should use strtol for converting strings to int and strtod converting to double
-int parser(char *str){
-    data_msg_t data;
-    double testvariable = 0;
-    double *dubbelstet = NULL; 
-    char delim[] = ",";
-    int fields = 0;
+//int parser(char *str){
+    //data_msg_t data;
+    //double testvariable = 0;
+    //double *dubbelstet = NULL; 
+    //char delim[] = ",";
+    //int fields = 0;
 
-    if (command[0] == '?')
-    {
-        return 1;
-    }
-    str = strtok(command, delim);
-    while ( str != NULL) {
-        str = strtok(NULL, delim);
-        switch (fields) {
-            case 0:
-                //data.timestamp = atof(str);
-                testvariable = atof(str);ThisThread::sleep_for(50ms);
-                //timestampqueue.try_put(atof(&str));
-                //data_msg_t[1]
-                timestampqueue.try_put(&testvariable);
-                ThisThread::sleep_for(100ms);
-                timestampqueue.try_get(&dubbelstet);
-                //printf("Timestamp= %f\n", *dubbelstet);
-                //printf("Timestamp= %f\n", data.timestamp);
-                break;
-            case 1:
-                //testvariable = atof(str);
-                //longitudequeue.try_put(&testvariable);
-                //printf("Longitude= %f\n", data.longitude);
-                break;
-            case 3:
-                //data.latitude = atof(str);
-                //latitudequeue.try_put(str);
-                //printf("latitude= %f\n", data.latitude);
-                break;
-            default:
-                break;
-        }
-        //debug msg vois tulla tähän cnt, montako käsitelty? 
-        fields++;
-    }
+    //if (command[0] == '?')
+    //{
+        //return 1;
+    //}
+    //str = strtok(command, delim);
+    //while ( str != NULL) {
+        //str = strtok(NULL, delim);
+        //switch (fields) {
+            //case 0:
+                ////data.timestamp = atof(str);
+                //testvariable = atof(str);ThisThread::sleep_for(50ms);
+                ////timestampqueue.try_put(atof(&str));
+                ////data_msg_t[1]
+                //timestampqueue.try_put(&testvariable);
+                //ThisThread::sleep_for(100ms);
+                //timestampqueue.try_get(&dubbelstet);
+                ////printf("Timestamp= %f\n", *dubbelstet);
+                ////printf("Timestamp= %f\n", data.timestamp);
+                //break;
+            //case 1:
+                ////testvariable = atof(str);
+                ////longitudequeue.try_put(&testvariable);
+                ////printf("Longitude= %f\n", data.longitude);
+                //break;
+            //case 3:
+                ////data.latitude = atof(str);
+                ////latitudequeue.try_put(str);
+                ////printf("latitude= %f\n", data.latitude);
+                //break;
+            //default:
+                //break;
+        //}
+        ////debug msg vois tulla tähän cnt, montako käsitelty? 
+        //fields++;
+    //}
 
-    // Palauttaa montako eriteltyä stringiä oli itse stringin sisällä eroteltu pilkulla ( , )
-    return fields;
+    //// Palauttaa montako eriteltyä stringiä oli itse stringin sisällä eroteltu pilkulla ( , )
+    //return fields;
+//}
+char gps[] = "$GPGGA";
+char n[] = "N";
+char e[] = "E";
+int runcount = 0;
+
+int parser(char *str) {
+	data_msg_t data;
+	char *token = NULL;
+	char delim[] = ",";
+	token = strtok(str, delim);
+	int fields = 0;	
+    double asdf = 1;
+	if (strncmp(str, gps, 6) < 0 || strncmp(str,gps,6) > 0){ return 1;} 
+	while ( token != NULL) {
+		token = strtok(NULL, delim);
+		switch(fields){
+			case 0: // timestamp
+				data.timestamp = atof(token);
+				if ( data.timestamp < 0 ) { return 2;}
+				break;
+			case 1: // latitude
+				data.latitude = atof(token);
+				if ( (data.latitude / 100) < 0 || (data.latitude / 100) > 90 ) { return 3;}  
+				
+				break;
+			case 2: // North hemisphere
+				if ( strncmp(token, n, 1) == 0 ){
+					break;
+				}
+				else {
+					return 4;
+				}
+				
+			case 3: // longitude
+				data.longitude = atof(token);
+                
+                timestampqueue.try_put(&asdf);
+				if ( (data.longitude / 100) < 0 || (data.longitude / 100) > 90 ) { return 5;}  
+		
+				break;
+			case 4: // East hemisphere
+				if (strncmp(token, e, 1) == 0){
+					break;
+				}
+				else {
+					return 6;
+				}
+			default:
+				break;
+		}	
+		fields++;
+	}
+    data_a.push(data);
+    runcount++;
+
+	return fields;
 }
 
 /*T1: GPS Parse - Parse (simplified) NMEA messages from serial port (UART) to get timestamp and GPS coordinates of a data point. 
@@ -184,8 +241,8 @@ void thread2()
 // $GPGGA,666666.361,5540.3252,N,01231.2946,E
 // = Timestamp= 134731.361 Longitude= 5540.3252 Latitude= 01231.2946 Airquality= 666 ==> thread4
 void thread3() {
-    data_msg_t dm;
-    double *perse = NULL;
+    data_msg_t data;
+    double *perhe = NULL;
     uint32_t flags_read = NULL;
     while (true) {
         flags_read = event_flags.wait_any(FLAG1);
@@ -193,35 +250,37 @@ void thread3() {
         {
             event_flags.clear(FLAG1);
             
-            timestampqueue.try_get(&perse);
-            dm.timestamp = *perse;
-            longitudequeue.try_get(&perse);
-            dm.longitude = *perse;
-            latitudequeue.try_get(&perse);
-            dm.latitude = *perse;
-            sensorqueue.try_get(&perse);
-            dm.sensorvalue = *perse;
-            data_a.push(dm);
+            data_a.pop(data);
+
+            //timestampqueue.try_get(&perse);
+            //dm.timestamp = *perse;
+            //longitudequeue.try_get(&perse);
+            //dm.longitude = *perse;
+            //latitudequeue.try_get(&perse);
+            //dm.latitude = *perse;
+            sensorqueue.try_get(&perhe);
+            data.sensorvalue = *perhe;
+            //data_a.push(dm);
 
             muteksi.lock();
-            printf("Timestamp: %f\n", dm.timestamp);
-            printf("Longitude: %f\n", dm.longitude);
-            printf("Latitude: %f\n", dm.latitude);
-            printf("Sensorvalue: %f\n", dm.sensorvalue);
+            printf("Timestamp: %f\n", data.timestamp);
+            printf("Longitude: %f\n", data.longitude);
+            printf("Latitude: %f\n", data.latitude);
+            printf("Sensorvalue: %f\n", data.sensorvalue);
             printf("\n");
             muteksi.unlock();
             //ThisThread::sleep_for(50ms);
             
-            if (maxSensorValue < dm.sensorvalue)
+            if (maxSensorValue < data.sensorvalue)
             {
-                maxSensorValue = dm.sensorvalue;
+                maxSensorValue = data.sensorvalue;
             }
-            if (minSensorValue > dm.sensorvalue)
+            if (minSensorValue > data.sensorvalue)
             {
-                minSensorValue = dm.sensorvalue;
+                minSensorValue = data.sensorvalue;
             }
 
-            *perse = NULL;
+            *perhe = NULL;
             flags_read = NULL;
             ThisThread::yield();
         }
@@ -232,16 +291,13 @@ void thread3() {
 void thread4()
 {
     data_msg_t dm;
-    char maxValue[100];
-    uint32_t flags_read = NULL;
     while(true)
     {
         if (command[0] == '?')
         {
             if (command[1] == 'c')
             {
-                
-                
+                printf("Run count: %d\n", runcount);
             }
             if (command[2] == 'i')
             {
@@ -253,9 +309,9 @@ void thread4()
             }
             command[0] = NULL;
         }
-        if (new_command == true)
+        if (new_command == true && command[0] != '\r')
         {
-            ThisThread::sleep_for(5ms);
+            ThisThread::sleep_for(50ms);
             event_flags.set(FLAG1);
         }
     }
