@@ -1,4 +1,3 @@
-# Only checking run count and test should be run 
 *** Settings ***
 
 Library  SerialLibrary    encoding=ascii

@@ -55,8 +55,6 @@ void serial_rx_int() {
     }
 }
 
-// ?cix
-
 char gps[] = "$GPGGA";
 char n[] = "N";
 char e[] = "E";
@@ -171,7 +169,9 @@ void thread3() {
         }
     }
 }
- // ?cix
+
+
+// We use less typing for debug ?cix
 void thread4()
 {     
     while(true)
